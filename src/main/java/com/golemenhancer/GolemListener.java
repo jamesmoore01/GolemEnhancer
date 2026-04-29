@@ -68,6 +68,7 @@ public class GolemListener implements Listener {
         boolean hasMemory = rememberedItem != null && rememberedWorld != null
                 && rememberedX != null && rememberedY != null && rememberedZ != null;
 
+        // Clear stale memory if item type changed
         if (hasMemory && !held.getType().name().equals(rememberedItem)) {
             clearMemory(golem);
             hasMemory = false;
@@ -78,9 +79,11 @@ public class GolemListener implements Listener {
         String chestKey = loc.getWorld().getName() + "," + loc.getBlockX() + "," + loc.getBlockY() + "," + loc.getBlockZ();
 
         if (!hasMemory) {
+            // Check if we already chose a chest this trip
             String alreadyChosen = chosenChest.get(golem.getUniqueId());
 
             if (alreadyChosen != null) {
+                // Already picked a chest this trip — allow only that one
                 if (alreadyChosen.equals(chestKey)) {
                     event.setAllowed(true);
                 } else {
@@ -89,7 +92,9 @@ public class GolemListener implements Listener {
                 return;
             }
 
+            // First chest evaluated this trip
             if (containerCanAccept(container.getInventory(), held)) {
+                // This chest works — write memory and allow it
                 pdc.set(KEY_ITEM_TYPE,   PersistentDataType.STRING,  held.getType().name());
                 pdc.set(KEY_CHEST_WORLD, PersistentDataType.STRING,  loc.getWorld().getName());
                 pdc.set(KEY_CHEST_X,     PersistentDataType.INTEGER, loc.getBlockX());
@@ -98,10 +103,14 @@ public class GolemListener implements Listener {
                 chosenChest.put(golem.getUniqueId(), chestKey);
                 failureCount.remove(golem.getUniqueId());
                 event.setAllowed(true);
+            } else {
+                // This chest can't accept the item — skip it, try the next one
+                event.setAllowed(false);
             }
             return;
         }
 
+        // Has memory — steer the golem
         boolean isRememberedChest = loc.getWorld().getName().equals(rememberedWorld)
                 && loc.getBlockX() == rememberedX
                 && loc.getBlockY() == rememberedY
@@ -110,13 +119,15 @@ public class GolemListener implements Listener {
         if (isRememberedChest) {
             if (containerCanAccept(container.getInventory(), held)) {
                 event.setAllowed(true);
-                chosenChest.put(golem.getUniqueId(), chestKey);
+                chosenChest.remove(golem.getUniqueId());
                 failureCount.remove(golem.getUniqueId());
             } else {
+                // Remembered chest is full — clear and start fresh
                 clearMemory(golem);
                 failureCount.remove(golem.getUniqueId());
             }
         } else {
+            // Wrong chest — check if remembered one is still valid
             Block rememberedBlock = loc.getWorld().getBlockAt(rememberedX, rememberedY, rememberedZ);
             BlockState rememberedState = rememberedBlock.getState();
 
@@ -130,6 +141,7 @@ public class GolemListener implements Listener {
                     failureCount.put(golem.getUniqueId(), failures);
                 }
             } else {
+                // Remembered chest gone or full — clear and start fresh
                 clearMemory(golem);
                 failureCount.remove(golem.getUniqueId());
             }
