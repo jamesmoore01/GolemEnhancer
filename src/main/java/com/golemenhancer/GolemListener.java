@@ -34,7 +34,8 @@ public class GolemListener implements Listener {
     private final NamespacedKey KEY_CHEST_Z;
 
     private final Map<UUID, Material> lastHeld = new HashMap<>();
-    private final Map<UUID, Boolean> onTrip = new HashMap<>();
+    private final Map<UUID, String> pendingChest = new HashMap<>();
+    private final Map<UUID, String> pendingItem = new HashMap<>();
 
     public GolemListener(GolemEnhancer plugin) {
         this.plugin = plugin;
@@ -65,17 +66,26 @@ public class GolemListener implements Listener {
                 ? Material.AIR : held.getType();
         Material last = lastHeld.getOrDefault(id, Material.AIR);
 
-        if (last == Material.AIR && current != Material.AIR) {
-            onTrip.put(id, true);
-        }
-
         if (last != Material.AIR && current == Material.AIR) {
-            onTrip.put(id, false);
+            String pending = pendingChest.get(id);
+            String item = pendingItem.get(id);
+            if (pending != null && item != null) {
+                String[] parts = pending.split(",");
+                PersistentDataContainer pdc = golem.getPersistentDataContainer();
+                pdc.set(KEY_ITEM_TYPE,   PersistentDataType.STRING,  item);
+                pdc.set(KEY_CHEST_WORLD, PersistentDataType.STRING,  parts[0]);
+                pdc.set(KEY_CHEST_X,     PersistentDataType.INTEGER, Integer.parseInt(parts[1]));
+                pdc.set(KEY_CHEST_Y,     PersistentDataType.INTEGER, Integer.parseInt(parts[2]));
+                pdc.set(KEY_CHEST_Z,     PersistentDataType.INTEGER, Integer.parseInt(parts[3]));
+            }
+            pendingChest.remove(id);
+            pendingItem.remove(id);
         }
 
         if (last != Material.AIR && current != Material.AIR && last != current) {
             clearMemory(golem);
-            onTrip.put(id, true);
+            pendingChest.remove(id);
+            pendingItem.remove(id);
         }
 
         lastHeld.put(id, current);
@@ -94,7 +104,8 @@ public class GolemListener implements Listener {
                 ? golem.getEquipment().getItemInMainHand() : null;
         if (held == null || held.getType() == Material.AIR) return;
 
-        if (!onTrip.getOrDefault(golem.getUniqueId(), false)) return;
+        Location loc = targetBlock.getLocation();
+        if (loc.getWorld() == null) return;
 
         PersistentDataContainer pdc = golem.getPersistentDataContainer();
         String rememberedItem  = pdc.get(KEY_ITEM_TYPE,   PersistentDataType.STRING);
@@ -111,17 +122,11 @@ public class GolemListener implements Listener {
             hasMemory = false;
         }
 
-        Location loc = targetBlock.getLocation();
-        if (loc.getWorld() == null) return;
-
         if (!hasMemory) {
-            if (containerCanAccept(container.getInventory(), held)) {
-                pdc.set(KEY_ITEM_TYPE,   PersistentDataType.STRING,  held.getType().name());
-                pdc.set(KEY_CHEST_WORLD, PersistentDataType.STRING,  loc.getWorld().getName());
-                pdc.set(KEY_CHEST_X,     PersistentDataType.INTEGER, loc.getBlockX());
-                pdc.set(KEY_CHEST_Y,     PersistentDataType.INTEGER, loc.getBlockY());
-                pdc.set(KEY_CHEST_Z,     PersistentDataType.INTEGER, loc.getBlockZ());
-            }
+            String chestKey = loc.getWorld().getName() + "," + loc.getBlockX()
+                    + "," + loc.getBlockY() + "," + loc.getBlockZ();
+            pendingChest.put(golem.getUniqueId(), chestKey);
+            pendingItem.put(golem.getUniqueId(), held.getType().name());
             return;
         }
 
@@ -133,6 +138,10 @@ public class GolemListener implements Listener {
         if (isRememberedChest) {
             if (containerCanAccept(container.getInventory(), held)) {
                 event.setAllowed(true);
+                String chestKey = loc.getWorld().getName() + "," + loc.getBlockX()
+                        + "," + loc.getBlockY() + "," + loc.getBlockZ();
+                pendingChest.put(golem.getUniqueId(), chestKey);
+                pendingItem.put(golem.getUniqueId(), held.getType().name());
             } else {
                 clearMemory(golem);
             }
@@ -152,7 +161,8 @@ public class GolemListener implements Listener {
     public void onEntityDeath(EntityDeathEvent event) {
         if (event.getEntity() instanceof CopperGolem golem) {
             lastHeld.remove(golem.getUniqueId());
-            onTrip.remove(golem.getUniqueId());
+            pendingChest.remove(golem.getUniqueId());
+            pendingItem.remove(golem.getUniqueId());
         }
     }
 
@@ -171,5 +181,7 @@ public class GolemListener implements Listener {
         pdc.remove(KEY_CHEST_X);
         pdc.remove(KEY_CHEST_Y);
         pdc.remove(KEY_CHEST_Z);
+        pendingChest.remove(golem.getUniqueId());
+        pendingItem.remove(golem.getUniqueId());
     }
 }
