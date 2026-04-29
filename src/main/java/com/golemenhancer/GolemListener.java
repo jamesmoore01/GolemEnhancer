@@ -17,6 +17,7 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
+import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -32,9 +33,8 @@ public class GolemListener implements Listener {
     private final NamespacedKey KEY_CHEST_Y;
     private final NamespacedKey KEY_CHEST_Z;
 
-    private final Map<UUID, Integer> failureCount = new HashMap<>();
-    private final Map<UUID, String> chosenChest = new HashMap<>();
-    private static final int MAX_FAILURES = 5;
+    private final Map<UUID, Material> lastHeld = new HashMap<>();
+    private final Map<UUID, Boolean> onTrip = new HashMap<>();
 
     public GolemListener(GolemEnhancer plugin) {
         this.plugin = plugin;
@@ -43,6 +43,42 @@ public class GolemListener implements Listener {
         KEY_CHEST_X     = new NamespacedKey(plugin, "memory_x");
         KEY_CHEST_Y     = new NamespacedKey(plugin, "memory_y");
         KEY_CHEST_Z     = new NamespacedKey(plugin, "memory_z");
+
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                for (org.bukkit.World world : plugin.getServer().getWorlds()) {
+                    for (Entity e : world.getEntities()) {
+                        if (!(e instanceof CopperGolem golem)) continue;
+                        trackGolem(golem);
+                    }
+                }
+            }
+        }.runTaskTimer(plugin, 0L, 10L);
+    }
+
+    private void trackGolem(CopperGolem golem) {
+        UUID id = golem.getUniqueId();
+        ItemStack held = golem.getEquipment() != null
+                ? golem.getEquipment().getItemInMainHand() : null;
+        Material current = (held == null || held.getType() == Material.AIR)
+                ? Material.AIR : held.getType();
+        Material last = lastHeld.getOrDefault(id, Material.AIR);
+
+        if (last == Material.AIR && current != Material.AIR) {
+            onTrip.put(id, true);
+        }
+
+        if (last != Material.AIR && current == Material.AIR) {
+            onTrip.put(id, false);
+        }
+
+        if (last != Material.AIR && current != Material.AIR && last != current) {
+            clearMemory(golem);
+            onTrip.put(id, true);
+        }
+
+        lastHeld.put(id, current);
     }
 
     @EventHandler(priority = EventPriority.HIGH)
@@ -58,6 +94,8 @@ public class GolemListener implements Listener {
                 ? golem.getEquipment().getItemInMainHand() : null;
         if (held == null || held.getType() == Material.AIR) return;
 
+        if (!onTrip.getOrDefault(golem.getUniqueId(), false)) return;
+
         PersistentDataContainer pdc = golem.getPersistentDataContainer();
         String rememberedItem  = pdc.get(KEY_ITEM_TYPE,   PersistentDataType.STRING);
         String rememberedWorld = pdc.get(KEY_CHEST_WORLD, PersistentDataType.STRING);
@@ -68,7 +106,6 @@ public class GolemListener implements Listener {
         boolean hasMemory = rememberedItem != null && rememberedWorld != null
                 && rememberedX != null && rememberedY != null && rememberedZ != null;
 
-        // Clear stale memory if item type changed
         if (hasMemory && !held.getType().name().equals(rememberedItem)) {
             clearMemory(golem);
             hasMemory = false;
@@ -76,41 +113,18 @@ public class GolemListener implements Listener {
 
         Location loc = targetBlock.getLocation();
         if (loc.getWorld() == null) return;
-        String chestKey = loc.getWorld().getName() + "," + loc.getBlockX() + "," + loc.getBlockY() + "," + loc.getBlockZ();
 
         if (!hasMemory) {
-            // Check if we already chose a chest this trip
-            String alreadyChosen = chosenChest.get(golem.getUniqueId());
-
-            if (alreadyChosen != null) {
-                // Already picked a chest this trip — allow only that one
-                if (alreadyChosen.equals(chestKey)) {
-                    event.setAllowed(true);
-                } else {
-                    event.setAllowed(false);
-                }
-                return;
-            }
-
-            // First chest evaluated this trip
             if (containerCanAccept(container.getInventory(), held)) {
-                // This chest works — write memory and allow it
                 pdc.set(KEY_ITEM_TYPE,   PersistentDataType.STRING,  held.getType().name());
                 pdc.set(KEY_CHEST_WORLD, PersistentDataType.STRING,  loc.getWorld().getName());
                 pdc.set(KEY_CHEST_X,     PersistentDataType.INTEGER, loc.getBlockX());
                 pdc.set(KEY_CHEST_Y,     PersistentDataType.INTEGER, loc.getBlockY());
                 pdc.set(KEY_CHEST_Z,     PersistentDataType.INTEGER, loc.getBlockZ());
-                chosenChest.put(golem.getUniqueId(), chestKey);
-                failureCount.remove(golem.getUniqueId());
-                event.setAllowed(true);
-            } else {
-                // This chest can't accept the item — skip it, try the next one
-                event.setAllowed(false);
             }
             return;
         }
 
-        // Has memory — steer the golem
         boolean isRememberedChest = loc.getWorld().getName().equals(rememberedWorld)
                 && loc.getBlockX() == rememberedX
                 && loc.getBlockY() == rememberedY
@@ -119,31 +133,17 @@ public class GolemListener implements Listener {
         if (isRememberedChest) {
             if (containerCanAccept(container.getInventory(), held)) {
                 event.setAllowed(true);
-                chosenChest.remove(golem.getUniqueId());
-                failureCount.remove(golem.getUniqueId());
             } else {
-                // Remembered chest is full — clear and start fresh
                 clearMemory(golem);
-                failureCount.remove(golem.getUniqueId());
             }
         } else {
-            // Wrong chest — check if remembered one is still valid
             Block rememberedBlock = loc.getWorld().getBlockAt(rememberedX, rememberedY, rememberedZ);
             BlockState rememberedState = rememberedBlock.getState();
 
             if (rememberedState instanceof Container rc && containerCanAccept(rc.getInventory(), held)) {
                 event.setAllowed(false);
-                int failures = failureCount.getOrDefault(golem.getUniqueId(), 0) + 1;
-                if (failures >= MAX_FAILURES) {
-                    clearMemory(golem);
-                    failureCount.remove(golem.getUniqueId());
-                } else {
-                    failureCount.put(golem.getUniqueId(), failures);
-                }
             } else {
-                // Remembered chest gone or full — clear and start fresh
                 clearMemory(golem);
-                failureCount.remove(golem.getUniqueId());
             }
         }
     }
@@ -151,8 +151,8 @@ public class GolemListener implements Listener {
     @EventHandler
     public void onEntityDeath(EntityDeathEvent event) {
         if (event.getEntity() instanceof CopperGolem golem) {
-            failureCount.remove(golem.getUniqueId());
-            chosenChest.remove(golem.getUniqueId());
+            lastHeld.remove(golem.getUniqueId());
+            onTrip.remove(golem.getUniqueId());
         }
     }
 
@@ -171,6 +171,5 @@ public class GolemListener implements Listener {
         pdc.remove(KEY_CHEST_X);
         pdc.remove(KEY_CHEST_Y);
         pdc.remove(KEY_CHEST_Z);
-        chosenChest.remove(golem.getUniqueId());
     }
 }
