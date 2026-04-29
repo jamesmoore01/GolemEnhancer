@@ -3,6 +3,15 @@ version: 1.0.0
 main: com.golemenhancer.GolemEnhancer
 api-version: "1.21"
 author: GolemEnhancer
-description: >
-  Enhances Copper Golems with chest memory, larger item transfers,
-  and quieter chest interactions.
+description: Enhances Copper Golems with chest memory and quieter chest interactions.
+
+commands:
+  golemreset:
+    description: Clears the memory of all copper golems in all worlds.
+    usage: /golemreset
+    permission: golemenhancer.reset
+
+permissions:
+  golemenhancer.reset:
+    description: Allows clearing all copper golems' memory.
+    default: true

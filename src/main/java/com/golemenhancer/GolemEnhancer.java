@@ -8,6 +8,7 @@ public class GolemEnhancer extends JavaPlugin {
     public void onEnable() {
         GolemListener listener = new GolemListener(this);
         getServer().getPluginManager().registerEvents(listener, this);
+        getCommand("golemreset").setExecutor(new GolemResetCommand(listener));
         getLogger().info("GolemEnhancer enabled! Copper Golems are now smarter.");
     }
 
