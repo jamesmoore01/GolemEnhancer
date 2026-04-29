@@ -1,0 +1,8 @@
+name: GolemEnhancer
+version: 1.0.0
+main: com.golemenhancer.GolemEnhancer
+api-version: "1.21"
+author: GolemEnhancer
+description: >
+  Enhances Copper Golems with chest memory, larger item transfers,
+  and quieter chest interactions.
