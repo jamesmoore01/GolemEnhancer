@@ -13,7 +13,6 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDeathEvent;
-import org.bukkit.event.entity.EntityRemoveFromWorldEvent;
 import org.bukkit.event.inventory.InventoryMoveItemEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.persistence.PersistentDataContainer;
@@ -181,13 +180,6 @@ public class GolemListener implements Listener {
     // -------------------------------------------------------------------------
     // 3. CLEANUP — remove golem from failure map when it dies or leaves the world
     // -------------------------------------------------------------------------
-
-    @EventHandler
-    public void onEntityRemove(EntityRemoveFromWorldEvent event) {
-        if (event.getEntity() instanceof CopperGolem golem) {
-            failureCount.remove(golem.getUniqueId());
-        }
-    }
 
     @EventHandler
     public void onEntityDeath(EntityDeathEvent event) {
