@@ -24,7 +24,6 @@ import java.util.UUID;
 public class GolemListener implements Listener {
 
     private final GolemEnhancer plugin;
-
     private static final int SCAN_RADIUS = 16;
 
     private final NamespacedKey KEY_WORLD;
@@ -64,19 +63,30 @@ public class GolemListener implements Listener {
         Material last = lastHeld.getOrDefault(id, Material.AIR);
 
         if (last == Material.AIR && current != Material.AIR) {
+            plugin.getLogger().info("[PICKUP] Golem picked up " + current + " - scanning...");
             Location best = findBestChest(golem, held);
-            if (best != null) setTarget(golem, best);
-            else clearTarget(golem);
+            if (best != null) {
+                plugin.getLogger().info("[SCAN] Best chest found at " + best.getBlockX() + "," + best.getBlockY() + "," + best.getBlockZ());
+                setTarget(golem, best);
+            } else {
+                plugin.getLogger().info("[SCAN] No suitable chest found - going vanilla");
+                clearTarget(golem);
+            }
         }
 
         if (last != Material.AIR && current == Material.AIR) {
+            plugin.getLogger().info("[DEPOSIT] Golem deposited - clearing target");
             clearTarget(golem);
         }
 
         if (last != Material.AIR && current != Material.AIR && last != current) {
+            plugin.getLogger().info("[CHANGE] Item changed to " + current + " - rescanning...");
             Location best = findBestChest(golem, held);
-            if (best != null) setTarget(golem, best);
-            else clearTarget(golem);
+            if (best != null) {
+                setTarget(golem, best);
+            } else {
+                clearTarget(golem);
+            }
         }
 
         lastHeld.put(id, current);
@@ -88,6 +98,7 @@ public class GolemListener implements Listener {
         Location bestEmpty = null;
         double bestMatchDist = Double.MAX_VALUE;
         double bestEmptyDist = Double.MAX_VALUE;
+        int containersScanned = 0;
 
         int r = SCAN_RADIUS;
         for (int x = -r; x <= r; x++) {
@@ -99,6 +110,7 @@ public class GolemListener implements Listener {
                             golemLoc.getBlockZ() + z);
                     BlockState state = block.getState();
                     if (!(state instanceof Container container)) continue;
+                    containersScanned++;
 
                     Inventory inv = container.getInventory();
                     boolean hasItems = false;
@@ -139,6 +151,7 @@ public class GolemListener implements Listener {
             }
         }
 
+        plugin.getLogger().info("[SCAN] Scanned " + containersScanned + " containers - match=" + (bestMatch != null) + " empty=" + (bestEmpty != null));
         return bestMatch != null ? bestMatch : bestEmpty;
     }
 
@@ -160,6 +173,7 @@ public class GolemListener implements Listener {
         Integer targetZ    = pdc.get(KEY_Z,     PersistentDataType.INTEGER);
 
         if (targetWorld == null || targetX == null || targetY == null || targetZ == null) {
+            plugin.getLogger().info("[VALIDATE] No target - vanilla");
             return;
         }
 
@@ -172,8 +186,10 @@ public class GolemListener implements Listener {
                 && targetLoc.getBlockZ() == targetZ;
 
         if (isTarget) {
+            plugin.getLogger().info("[VALIDATE] Correct chest - allowing");
             event.setAllowed(true);
         } else {
+            plugin.getLogger().info("[VALIDATE] Wrong chest at " + targetLoc.getBlockX() + "," + targetLoc.getBlockY() + "," + targetLoc.getBlockZ() + " - blocking. Target is " + targetX + "," + targetY + "," + targetZ);
             event.setAllowed(false);
         }
     }
